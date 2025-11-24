@@ -1,20 +1,35 @@
 #include <Arduino.h>
 #include <WiFi.h>
+#include <BLEDevice.h>
+#include <BLEServer.h>
+#include <BLEUtils.h>
+#include <BLE2902.h>
 #include <WebSocketsClient.h>
 #include <ArduinoJson.h>
+#include <Preferences.h>
 #include "manifest.h"
 #include "fakts.h"
 #include "arkitekt.h"
 #include "app.h"
 #include "agent.h"
 #include "agent_example_updated.h"
+#include "config_defaults.h"
+
+// BLE UUIDs for our custom provisioning service
+#define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
+#define WIFI_SSID_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a8"
+#define WIFI_PASSWORD_UUID "beb5483e-36e1-4688-b7f5-ea07361b26a9"
+#define BASE_URL_UUID "beb5483e-36e1-4688-b7f5-ea07361b26aa"
+#define FAKTS_TOKEN_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ab"
+#define MANIFEST_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ad"
+#define STATUS_UUID "beb5483e-36e1-4688-b7f5-ea07361b26ac"
+
 /*
  * Arkitekt Authentication Flow for ESP32
  *
  * This program demonstrates the complete authentication flow:
- * 1. Redeem Token: Exchange a redeem token for a claim token
- * 2. Claim Fakts: Use the claim token to get the configuration (fakts)
- * 3. OAuth2 Authentication: Use client credentials from fakts to get an access token
+ * 1. Claim Fakts: Use the fakts token to get the configuration (fakts)
+ * 2. OAuth2 Authentication: Use client credentials from fakts to get an access token
  *
  * The fakts configuration includes:
  * - self: deployment information
@@ -22,15 +37,123 @@
  * - instances: service endpoints with aliases
  */
 
-// WiFi credentials
-const char *ssid = "FRITZ!Box 7530 XJ";
-const char *password = "86398244112958418480";
+// Configuration
+char baseUrl[128] = DEFAULT_BASE_URL;
+char faktsToken[128] = DEFAULT_REDEEM_TOKEN; // Will be updated via BLE
+String claimUrl;
 
-// Redeem configuration
-const char *redeemToken = "anothersecrettoken";
-const char *baseUrl = "http://go.arkitekt.live/";
-const char *retrieveUrl = "https://go.arkitekt.live/lok/f/redeem/";
-const char *claimUrl = "https://go.arkitekt.live/lok/f/claim/";
+Preferences preferences;
+bool isProvisioned = false;
+
+// BLE variables
+BLEServer *pServer = NULL;
+BLECharacteristic *statusCharacteristic = NULL;
+bool deviceConnected = false;
+bool oldDeviceConnected = false;
+
+String wifiSSID = "";
+String wifiPassword = "";
+String configBaseUrl = "";
+String configToken = "";
+bool hasNewConfig = false;
+
+// BLE Server Callbacks
+class MyServerCallbacks : public BLEServerCallbacks
+{
+  void onConnect(BLEServer *pServer)
+  {
+    deviceConnected = true;
+    Serial.println("\n[BLE] ========== CLIENT CONNECTED ==========");
+    Serial.println("[BLE] BLE client has connected to ARKITEKT_CONFIG");
+    Serial.println("[BLE] =========================================\n");
+  };
+
+  void onDisconnect(BLEServer *pServer)
+  {
+    deviceConnected = false;
+    Serial.println("\n[BLE] ========== CLIENT DISCONNECTED ==========");
+    Serial.println("[BLE] BLE client has disconnected");
+    Serial.println("[BLE] ===========================================\n");
+  }
+};
+
+// Characteristic Callbacks for receiving data
+class WiFiSSIDCallbacks : public BLECharacteristicCallbacks
+{
+  void onWrite(BLECharacteristic *pCharacteristic)
+  {
+    Serial.println("[BLE] WiFi SSID characteristic WRITE received");
+    std::string value = pCharacteristic->getValue();
+    if (value.length() > 0)
+    {
+      wifiSSID = String(value.c_str());
+      Serial.println("[BLE] Received WiFi SSID: " + wifiSSID);
+    }
+    else
+    {
+      Serial.println("[BLE] WARNING: Empty WiFi SSID received");
+    }
+  }
+};
+
+class WiFiPasswordCallbacks : public BLECharacteristicCallbacks
+{
+  void onWrite(BLECharacteristic *pCharacteristic)
+  {
+    Serial.println("[BLE] WiFi Password characteristic WRITE received");
+    std::string value = pCharacteristic->getValue();
+    if (value.length() > 0)
+    {
+      wifiPassword = String(value.c_str());
+      Serial.println("[BLE] Received WiFi Password: " + String(value.length()) + " chars");
+    }
+    else
+    {
+      Serial.println("[BLE] WARNING: Empty WiFi Password received");
+    }
+  }
+};
+
+class BaseURLCallbacks : public BLECharacteristicCallbacks
+{
+  void onWrite(BLECharacteristic *pCharacteristic)
+  {
+    Serial.println("[BLE] Base URL characteristic WRITE received");
+    std::string value = pCharacteristic->getValue();
+    if (value.length() > 0)
+    {
+      configBaseUrl = String(value.c_str());
+      Serial.println("[BLE] Received Base URL: " + configBaseUrl);
+    }
+    else
+    {
+      Serial.println("[BLE] WARNING: Empty Base URL received");
+    }
+  }
+};
+
+class FaktsTokenCallbacks : public BLECharacteristicCallbacks
+{
+  void onWrite(BLECharacteristic *pCharacteristic)
+  {
+    Serial.println("[BLE] Fakts Token characteristic WRITE received");
+    std::string value = pCharacteristic->getValue();
+    if (value.length() > 0)
+    {
+      configToken = String(value.c_str());
+      Serial.println("[BLE] Received Fakts Token: " + String(value.length()) + " chars");
+      Serial.println("[BLE] Token preview: " + String(value.c_str()).substring(0, min(20, (int)value.length())) + "...");
+
+      // When token is received, trigger configuration save
+      hasNewConfig = true;
+      Serial.println("[BLE] Configuration complete flag set to TRUE");
+    }
+    else
+    {
+      Serial.println("[BLE] WARNING: Empty Fakts Token received");
+    }
+  }
+};
 
 // Create manifest instance at startup
 Manifest appManifest("test-esp32", "1.0.0");
@@ -47,6 +170,107 @@ bool initializeAppFlow();
 void setupWebSocket(ServiceInstance *service);
 void webSocketEvent(WStype_t type, uint8_t *payload, size_t length);
 
+void startBLEProvisioning()
+{
+  Serial.println("\n=== Starting Custom BLE Provisioning ===");
+
+  // Initialize BLE
+  BLEDevice::init("ARKITEKT_CONFIG");
+
+  // Create BLE Server
+  pServer = BLEDevice::createServer();
+  pServer->setCallbacks(new MyServerCallbacks());
+
+  // Create BLE Service
+  BLEService *pService = pServer->createService(SERVICE_UUID);
+
+  // Create Characteristics
+  BLECharacteristic *wifiSSIDChar = pService->createCharacteristic(
+      WIFI_SSID_UUID,
+      BLECharacteristic::PROPERTY_WRITE);
+  wifiSSIDChar->setCallbacks(new WiFiSSIDCallbacks());
+
+  BLECharacteristic *wifiPasswordChar = pService->createCharacteristic(
+      WIFI_PASSWORD_UUID,
+      BLECharacteristic::PROPERTY_WRITE);
+  wifiPasswordChar->setCallbacks(new WiFiPasswordCallbacks());
+
+  BLECharacteristic *baseUrlChar = pService->createCharacteristic(
+      BASE_URL_UUID,
+      BLECharacteristic::PROPERTY_WRITE);
+  baseUrlChar->setCallbacks(new BaseURLCallbacks());
+
+  BLECharacteristic *faktsTokenChar = pService->createCharacteristic(
+      FAKTS_TOKEN_UUID,
+      BLECharacteristic::PROPERTY_WRITE);
+  faktsTokenChar->setCallbacks(new FaktsTokenCallbacks());
+
+  // Manifest characteristic (read-only) - returns JSON manifest
+  BLECharacteristic *manifestChar = pService->createCharacteristic(
+      MANIFEST_UUID,
+      BLECharacteristic::PROPERTY_READ);
+
+  // Serialize manifest to JSON string
+  JsonDocument manifestDoc;
+  JsonObject manifestObj = manifestDoc.to<JsonObject>();
+  appManifest.toJson(manifestObj);
+  String manifestJson;
+  serializeJson(manifestDoc, manifestJson);
+  manifestChar->setValue(manifestJson.c_str());
+
+  // Add read callback for logging
+  class ManifestCallbacks : public BLECharacteristicCallbacks
+  {
+    void onRead(BLECharacteristic *pCharacteristic)
+    {
+      Serial.println("[BLE] Manifest characteristic READ by client");
+      Serial.println("[BLE] Manifest content: " + String(pCharacteristic->getValue().c_str()));
+    }
+  };
+  manifestChar->setCallbacks(new ManifestCallbacks());
+
+  statusCharacteristic = pService->createCharacteristic(
+      STATUS_UUID,
+      BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_NOTIFY);
+  statusCharacteristic->addDescriptor(new BLE2902());
+  statusCharacteristic->setValue("Ready");
+
+  // Add read callback for logging
+  class StatusCallbacks : public BLECharacteristicCallbacks
+  {
+    void onRead(BLECharacteristic *pCharacteristic)
+    {
+      Serial.println("[BLE] Status characteristic READ by client");
+      Serial.println("[BLE] Status: " + String(pCharacteristic->getValue().c_str()));
+    }
+  };
+  statusCharacteristic->setCallbacks(new StatusCallbacks());
+
+  // Start the service
+  pService->start();
+
+  // Start advertising
+  BLEAdvertising *pAdvertising = BLEDevice::getAdvertising();
+  pAdvertising->addServiceUUID(SERVICE_UUID);
+  pAdvertising->setScanResponse(true);
+  pAdvertising->setMinPreferred(0x06);
+  pAdvertising->setMinPreferred(0x12);
+  BLEDevice::startAdvertising();
+
+  Serial.println("BLE Service Started!");
+  Serial.println("Service UUID: " + String(SERVICE_UUID));
+  Serial.println("Device Name: ARKITEKT_CONFIG");
+  Serial.println("\nCharacteristics:");
+  Serial.println("  WiFi SSID:      " + String(WIFI_SSID_UUID));
+  Serial.println("  WiFi Password:  " + String(WIFI_PASSWORD_UUID));
+  Serial.println("  Base URL:       " + String(BASE_URL_UUID));
+  Serial.println("  Fakts Token:    " + String(FAKTS_TOKEN_UUID));
+  Serial.println("  Manifest (R):   " + String(MANIFEST_UUID));
+  Serial.println("  Status:         " + String(STATUS_UUID));
+  Serial.println("\nManifest JSON: " + manifestJson);
+  Serial.println("\nWaiting for BLE connection...");
+}
+
 void setup()
 {
   // Initialize serial communication
@@ -55,7 +279,27 @@ void setup()
   {
     ;
   } // (optional, native USB boards)
+
   Serial.println("Hello");
+
+#ifdef DEBUG
+  Serial.println("\n=== DEBUG MODE ===");
+  Serial.println("Send any character via Serial to start...");
+
+  // Wait for serial input
+  while (!Serial.available())
+  {
+    delay(100);
+  }
+
+  // Clear the serial buffer
+  while (Serial.available())
+  {
+    Serial.read();
+  }
+
+  Serial.println("Starting...\n");
+#endif
 
   // Turn on LED on GPIO2 to indicate startup
   pinMode(2, OUTPUT);
@@ -72,41 +316,186 @@ void setup()
   appManifest.print();
   Serial.println("============================\n");
 
-  // Connect to WiFi
-  Serial.println("Connecting to WiFi...");
-  Serial.print("SSID: ");
-  Serial.println(ssid);
+  // Load configuration from Preferences
+  Serial.println("\n=== Loading Saved Configuration ===");
+  preferences.begin("arkitekt", false);
+  String savedBaseUrl = preferences.getString("baseUrl", DEFAULT_BASE_URL);
+  savedBaseUrl.toCharArray(baseUrl, 128);
+  Serial.println("Base URL: " + savedBaseUrl);
 
-  WiFi.mode(WIFI_STA);
-  WiFi.begin(ssid, password);
+  String savedToken = preferences.getString("faktsToken", DEFAULT_REDEEM_TOKEN);
+  savedToken.toCharArray(faktsToken, 128);
+  Serial.println("Fakts Token: " + savedToken.substring(0, 10) + "...");
+  preferences.end();
+  Serial.println("===================================\n");
 
-  int attempts = 0;
-  while (WiFi.status() != WL_CONNECTED && attempts < 40)
+  // Check if we are already provisioned
+  Serial.println("\n=== Checking WiFi Status ===");
+  Serial.print("WiFi Status: ");
+  Serial.println(WiFi.status());
+  Serial.print("Saved SSID: ");
+  Serial.println(WiFi.SSID());
+  Serial.print("SSID Length: ");
+  Serial.println(WiFi.SSID().length());
+
+  if (WiFi.status() == WL_CONNECTED || WiFi.SSID().length() > 0)
   {
-    delay(500);
-    Serial.print(".");
-    attempts++;
-  }
+    Serial.println("Already Provisioned. Starting Normal Mode...");
+    Serial.print("Attempting to connect to: ");
+    Serial.println(WiFi.SSID());
+    WiFi.begin(); // Connect to saved WiFi
 
-  if (WiFi.status() == WL_CONNECTED)
-  {
-    Serial.println("\nWiFi connected!");
-    Serial.print("IP address: ");
-    Serial.println(WiFi.localIP());
-
-    appReady = initializeAppFlow();
-
-    if (!appReady)
+    unsigned long startTime = millis();
+    while (WiFi.status() != WL_CONNECTED && millis() - startTime < 20000)
     {
-      Serial.println("⚠ App initialization failed. Check logs above.");
+      delay(500);
+      Serial.print(".");
+    }
+
+    if (WiFi.status() == WL_CONNECTED)
+    {
+      Serial.println("\nWiFi connected!");
+      Serial.print("IP address: ");
+      Serial.println(WiFi.localIP());
+    }
+    else
+    {
+      Serial.println("\nFailed to connect. Erasing WiFi config...");
+      WiFi.disconnect(true, true);
+      ESP.restart();
     }
   }
   else
   {
-    Serial.println("\nFailed to connect to WiFi!");
-    Serial.print("WiFi Status: ");
-    Serial.println(WiFi.status());
-    Serial.println("Please check your WiFi credentials and network availability");
+    // Start custom BLE provisioning
+    startBLEProvisioning();
+
+    // Wait for configuration via BLE
+    Serial.println("Waiting for configuration via BLE...");
+    while (!hasNewConfig)
+    {
+      delay(100);
+
+      // Handle BLE disconnection for restart advertising
+      if (!deviceConnected && oldDeviceConnected)
+      {
+        delay(500);
+        pServer->startAdvertising();
+        Serial.println("Restarting advertising...");
+        oldDeviceConnected = deviceConnected;
+      }
+
+      // Handle BLE connection
+      if (deviceConnected && !oldDeviceConnected)
+      {
+        oldDeviceConnected = deviceConnected;
+      }
+    }
+
+    Serial.println("\n=== Configuration Received ===");
+
+    // Update status
+    if (statusCharacteristic)
+    {
+      statusCharacteristic->setValue("Connecting...");
+      statusCharacteristic->notify();
+    }
+
+    // Save configuration to preferences
+    if (configBaseUrl.length() > 0)
+    {
+      preferences.begin("arkitekt", false);
+      preferences.putString("baseUrl", configBaseUrl);
+      preferences.end();
+      // Update runtime variable
+      configBaseUrl.toCharArray(baseUrl, 128);
+      Serial.println("Base URL saved: " + configBaseUrl);
+    }
+
+    if (configToken.length() > 0)
+    {
+      preferences.begin("arkitekt", false);
+      preferences.putString("faktsToken", configToken);
+      preferences.end();
+      // Update runtime variable
+      configToken.toCharArray(faktsToken, 128);
+      Serial.println("Fakts Token saved: " + String(configToken.length()) + " chars");
+    }
+
+    // Connect to WiFi
+    if (wifiSSID.length() > 0 && wifiPassword.length() > 0)
+    {
+      Serial.println("Connecting to WiFi: " + wifiSSID);
+      WiFi.begin(wifiSSID.c_str(), wifiPassword.c_str());
+
+      unsigned long startTime = millis();
+      while (WiFi.status() != WL_CONNECTED && millis() - startTime < 20000)
+      {
+        delay(500);
+        Serial.print(".");
+      }
+
+      if (WiFi.status() == WL_CONNECTED)
+      {
+        Serial.println("\nWiFi connected!");
+        Serial.print("IP address: ");
+        Serial.println(WiFi.localIP());
+
+        if (statusCharacteristic)
+        {
+          String status = "Connected: " + WiFi.localIP().toString();
+          statusCharacteristic->setValue(status.c_str());
+          statusCharacteristic->notify();
+        }
+
+        // Stop BLE to free memory
+        delay(2000); // Give time for status to be sent
+        BLEDevice::deinit();
+        Serial.println("BLE stopped");
+      }
+      else
+      {
+        Serial.println("\nFailed to connect to WiFi!");
+
+        if (statusCharacteristic)
+        {
+          statusCharacteristic->setValue("WiFi Failed");
+          statusCharacteristic->notify();
+        }
+
+        delay(3000);
+        ESP.restart();
+      }
+    }
+    else
+    {
+      Serial.println("No WiFi credentials provided!");
+
+      if (statusCharacteristic)
+      {
+        statusCharacteristic->setValue("No Credentials");
+        statusCharacteristic->notify();
+      }
+
+      delay(3000);
+      ESP.restart();
+    }
+  }
+
+  // Construct URLs
+  String base = String(baseUrl);
+  if (!base.endsWith("/"))
+    base += "/";
+  claimUrl = base + "lok/f/claim/";
+
+  Serial.println("Base URL: " + base);
+  Serial.println("Claim URL: " + claimUrl);
+
+  appReady = initializeAppFlow();
+
+  if (!appReady)
+  {
+    Serial.println("⚠ App initialization failed. Check logs above.");
   }
 }
 
@@ -120,33 +509,35 @@ void loop()
 
   delay(1000);
 }
-
 bool initializeAppFlow()
 {
-  Serial.println("\n=== Starting Redeem Request ===");
-
-  String token;
-  String errorMessage;
-
-  if (!redeemToken_request(appManifest, redeemToken, retrieveUrl, token, errorMessage))
-  {
-    Serial.println("✗ Redeem failed!");
-    Serial.println("Error: " + errorMessage);
-    return false;
-  }
-
-  Serial.println("✓ Token retrieved successfully!");
-  Serial.println("Token: " + token);
-  lastRedeemedToken = token;
-
   Serial.println("\n=== Claiming Fakts Configuration ===");
+  Serial.println("Using faktsToken: " + String(faktsToken).substring(0, min(20, (int)strlen(faktsToken))) + "...");
   globalFaktsConfig.reset();
   String claimError;
 
-  if (!claimFakts(token, claimUrl, globalFaktsConfig, claimError))
+  // Use faktsToken directly to claim configuration
+  if (!claimFakts(faktsToken, claimUrl, globalFaktsConfig, claimError))
   {
     Serial.println("✗ Claim failed!");
     Serial.println("Error: " + claimError);
+
+    // Clear all saved configuration
+    Serial.println("\n=== Clearing Saved Configuration ===");
+    preferences.begin("arkitekt", false);
+    preferences.remove("baseUrl");
+    preferences.remove("faktsToken");
+    preferences.end();
+    Serial.println("All configuration cleared");
+
+    // Clear WiFi credentials to force BLE provisioning on restart
+    Serial.println("Erasing WiFi credentials...");
+    WiFi.disconnect(true, true);
+
+    Serial.println("Restarting in 3 seconds to enter BLE provisioning mode...");
+    delay(3000);
+    ESP.restart();
+
     return false;
   }
 
@@ -421,14 +812,32 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length)
           {
             Serial.println("✓ Assignment handled successfully");
 
-            // TODO: Send YIELD and DONE events via WebSocket
-            // For now, just log
-            Serial.println("TODO: Send YIELD and DONE messages");
+            // Send DONE event
+            StaticJsonDocument<256> doneDoc;
+            doneDoc["type"] = "DONE";
+            doneDoc["assignation"] = assignation;
+            doneDoc["id"] = generateUUID4();
+
+            String doneMsg;
+            serializeJson(doneDoc, doneMsg);
+            Serial.println("WS >> " + doneMsg);
+            webSocket.sendTXT(doneMsg);
           }
           else
           {
             Serial.println("✗ Assignment failed");
-            // TODO: Send CRITICAL error event
+
+            // Send CRITICAL error event
+            StaticJsonDocument<512> criticalDoc;
+            criticalDoc["type"] = "CRITICAL";
+            criticalDoc["assignation"] = assignation;
+            criticalDoc["id"] = generateUUID4();
+            criticalDoc["error"] = "Function execution failed";
+
+            String criticalMsg;
+            serializeJson(criticalDoc, criticalMsg);
+            Serial.println("WS >> " + criticalMsg);
+            webSocket.sendTXT(criticalMsg);
           }
         }
         else

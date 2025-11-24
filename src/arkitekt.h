@@ -8,7 +8,7 @@
 #include "fakts.h"
 
 // Function to get OAuth2 access token using client credentials
-bool getOAuth2Token(const AuthConfig &auth, String &accessToken, String &errorMessage)
+inline bool getOAuth2Token(const AuthConfig &auth, String &accessToken, String &errorMessage)
 {
     if (!auth.isValid)
     {
@@ -98,7 +98,7 @@ bool getOAuth2Token(const AuthConfig &auth, String &accessToken, String &errorMe
 }
 
 // Function to perform the redeem request
-bool redeemToken_request(const Manifest &manifest, const String &redeemToken, const String &retrieveUrl, String &outToken, String &errorMessage)
+inline bool redeemToken_request(const Manifest &manifest, const String &redeemToken, const String &retrieveUrl, String &outToken, String &errorMessage)
 {
     if (WiFi.status() != WL_CONNECTED)
     {
@@ -197,7 +197,7 @@ bool redeemToken_request(const Manifest &manifest, const String &redeemToken, co
 }
 
 // Function to claim fakts configuration
-bool claimFakts(const String &token, const String &claimUrl, FaktsConfig &faktsConfig, String &errorMessage)
+inline bool claimFakts(const String &token, const String &claimUrl, FaktsConfig &faktsConfig, String &errorMessage)
 {
     if (WiFi.status() != WL_CONNECTED)
     {

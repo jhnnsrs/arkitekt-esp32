@@ -1,0 +1,84 @@
+#include <Arduino.h>
+#include <WiFi.h>
+#include "arkitekt_easy.h"
+#include "arkitekt_simple_example.h"
+
+/*
+ * Simplified Arkitekt Example
+ *
+ * This demonstrates a cleaner, more intuitive API pattern
+ */
+
+// WiFi credentials
+const char *ssid = "FRITZ!Box 7530 XJ";
+const char *password = "86398244112958418480";
+
+// Arkitekt configuration
+const char *redeemToken = "anothersecrettoken";
+
+// Create app instance
+ArkitektApp arkitektApp;
+
+void setup()
+{
+    // Initialize serial
+    Serial.begin(115200);
+    while (!Serial)
+        ;
+    Serial.println("\n=== Simplified Arkitekt Example ===");
+
+    // Turn on LED to indicate startup
+    pinMode(2, OUTPUT);
+    digitalWrite(2, HIGH);
+    Serial.println("LED on GPIO2 turned ON");
+
+    // Connect to WiFi
+    Serial.println("\nConnecting to WiFi...");
+    WiFi.mode(WIFI_STA);
+    WiFi.begin(ssid, password);
+
+    int attempts = 0;
+    while (WiFi.status() != WL_CONNECTED && attempts < 40)
+    {
+        delay(500);
+        Serial.print(".");
+        attempts++;
+    }
+
+    if (WiFi.status() != WL_CONNECTED)
+    {
+        Serial.println("\nFailed to connect to WiFi!");
+        return;
+    }
+
+    Serial.println("\nWiFi connected!");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+
+    // Initialize Arkitekt app
+    if (!arkitektApp.begin(redeemToken, "default", "ESP32-Simple-Agent"))
+    {
+        Serial.println("Failed to initialize Arkitekt app");
+        return;
+    }
+
+    // Register functions using simple API
+    registerSimpleFunctions(arkitektApp);
+
+    // Finalize (ensure agent and register on server)
+    if (!arkitektApp.finalize())
+    {
+        Serial.println("Failed to finalize agent");
+        return;
+    }
+
+    // TODO: Setup WebSocket connection
+    Serial.println("\n=== Setup Complete ===");
+    Serial.println("Agent ready for assignments!");
+}
+
+void loop()
+{
+    // TODO: WebSocket loop
+    delay(100);
+}
