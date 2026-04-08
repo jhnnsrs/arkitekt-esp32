@@ -180,13 +180,13 @@ private:
     String interfaceName;
     StateDefinition definition;
     DynamicJsonDocument valuesDoc;
-    WebSocketsClient *ws;
+    WebSocketsClient **wsPtr; // Pointer to Agent's ws pointer
     String *sessionId;
     int *globalRevPtr; // Points to Agent's global revision counter
 
     void sendPatch(const String &key, const JsonVariant &oldValue)
     {
-        if (!ws || !sessionId || sessionId->length() == 0)
+        if (!wsPtr || !*wsPtr || !sessionId || sessionId->length() == 0)
             return;
 
         (*globalRevPtr)++;
@@ -209,12 +209,12 @@ private:
         String msg;
         serializeJson(patchDoc, msg);
         Serial.println("[STATE] Patch >> " + msg);
-        ws->sendTXT(msg);
+        (*wsPtr)->sendTXT(msg);
     }
 
 public:
-    AgentState(const String &iface, const StateDefinition &def, WebSocketsClient *websocket, String *session, int *globalRev)
-        : interfaceName(iface), definition(def), valuesDoc(1024), ws(websocket), sessionId(session), globalRevPtr(globalRev)
+    AgentState(const String &iface, const StateDefinition &def, WebSocketsClient **websocket, String *session, int *globalRev)
+        : interfaceName(iface), definition(def), valuesDoc(1024), wsPtr(websocket), sessionId(session), globalRevPtr(globalRev)
     {
         valuesDoc.to<JsonObject>(); // Initialize as empty object
     }
@@ -321,7 +321,7 @@ public:
     void registerState(const String &stateName, const StateDefinition &definition)
     {
         stateDefinitions[stateName] = definition;
-        AgentState *state = new AgentState(stateName, definition, ws, &sessionId, &globalRev);
+        AgentState *state = new AgentState(stateName, definition, &ws, &sessionId, &globalRev);
         states[stateName] = state;
         Serial.println("Registered state: " + stateName);
     }
