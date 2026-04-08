@@ -7,13 +7,15 @@
 #include <functional>
 #include <map>
 #include "app.h"
+#include "reply_channel.h"
 
 // Forward declarations
 class Agent;
 class AgentState;
+class ArkitektApp;
 
-// Function callback type: takes (Agent&, JsonObject args) and returns JsonObject with results
-typedef std::function<bool(Agent &, JsonObject, JsonObject &)> AgentFunction;
+// Function callback type: receives (ArkitektApp&, Agent&, JsonObject args, ReplyChannel&)
+typedef std::function<bool(ArkitektApp &, Agent &, JsonObject, ReplyChannel &)> AgentFunction;
 
 // Definition structure for a function
 struct FunctionDefinition
@@ -613,7 +615,7 @@ public:
         return true;
     }
 
-    bool handleAssignment(const String &functionName, const String &assignation, JsonObject args)
+    bool handleAssignment(ArkitektApp &app, const String &functionName, const String &assignation, JsonObject args)
     {
         Serial.println("→ Handling assignment: " + functionName);
         Serial.println("  Assignation ID: " + assignation);
@@ -627,24 +629,21 @@ public:
             return false;
         }
 
-        // Prepare returns object
-        DynamicJsonDocument returnsDoc(1024);
-        JsonObject returns = returnsDoc.to<JsonObject>();
+        // Create ReplyChannel for this assignment
+        ReplyChannel reply(ws, assignation);
 
-        // Execute the function
-        bool success = func(*this, args, returns);
+        // Execute the function — user controls yield/done/critical via ReplyChannel
+        bool success = func(app, *this, args, reply);
 
         if (success)
         {
             Serial.println("✓ Function executed successfully");
-            // Returns will be sent by the caller
-            return true;
         }
         else
         {
             Serial.println("✗ Function execution failed");
-            return false;
         }
+        return success;
     }
 
     const String &getInstanceId() const
