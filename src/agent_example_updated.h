@@ -343,7 +343,7 @@ void registerExampleStates(Agent *agent)
 
     // LED state - tracks the current LED status
     {
-        StateDefinition def("led_status", "LED Status", "Current state of the onboard LED");
+        StateDefinition def("led_status", "LED Status");
         JsonArray ports = ledStatePortsDoc.to<JsonArray>();
         PortBuilder::createBoolPort(ports, "on", "On", "Whether the LED is currently on", false);
         PortBuilder::createIntPort(ports, "pin", "Pin", "GPIO pin number", false);
@@ -362,7 +362,7 @@ void registerExampleStates(Agent *agent)
 
     // Sensor state - tracks last sensor reading
     {
-        StateDefinition def("sensor_status", "Sensor Status", "Last sensor reading values");
+        StateDefinition def("sensor_status", "Sensor Status");
         JsonArray ports = sensorStatePortsDoc.to<JsonArray>();
         PortBuilder::createFloatPort(ports, "temperature", "Temperature", "Last temperature reading in celsius", false);
         PortBuilder::createIntPort(ports, "readings_count", "Readings Count", "Total number of readings taken", false);

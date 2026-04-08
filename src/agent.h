@@ -161,16 +161,16 @@ inline String agentGenerateUUID4()
 }
 
 // State definition structure
+// Matches StateDefinitionInput: { name: String!, ports: [ReturnPortInput!]! }
 struct StateDefinition
 {
     String key;
     String name;
-    String description;
-    JsonArray ports; // Array of PortInput definitions (like return ports)
+    JsonArray ports; // Array of ReturnPortInput definitions
 
     StateDefinition() {}
-    StateDefinition(const String &key, const String &name, const String &desc)
-        : key(key), name(name), description(desc) {}
+    StateDefinition(const String &key, const String &name)
+        : key(key), name(name) {}
 };
 
 // Agent State - holds current state values and sends patches over WebSocket
@@ -574,17 +574,16 @@ mutation ImplementAgent($input: ImplementAgentInput!) {
             implInput["dependencies"].to<JsonArray>();
         }
 
-        // States - StateImplementationInput[]
+        // States - StateImplementationInput[]: { interface: String!, definition: StateDefinitionInput! }
         JsonArray statesArr = input["states"].to<JsonArray>();
         for (const auto &pair : stateDefinitions)
         {
             JsonObject stateImpl = statesArr.add<JsonObject>();
             stateImpl["interface"] = pair.first;
-            stateImpl["extension"] = "default";
 
+            // StateDefinitionInput: { name: String!, ports: [ReturnPortInput!]! }
             JsonObject stateDef = stateImpl["definition"].to<JsonObject>();
             stateDef["name"] = pair.second.name;
-            stateDef["description"] = pair.second.description;
 
             if (pair.second.ports.size() > 0)
                 stateDef["ports"] = pair.second.ports;

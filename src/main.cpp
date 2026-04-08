@@ -782,6 +782,26 @@ void checkFactoryReset()
   }
 }
 
+// Background temperature update
+unsigned long lastTempUpdate = 0;
+
+void updateTemperatureState()
+{
+  if (globalAgent == nullptr)
+    return;
+  if (millis() - lastTempUpdate < 5000)
+    return;
+  lastTempUpdate = millis();
+
+  AgentState *state = globalAgent->getState("sensor_status");
+  if (state)
+  {
+    float temp = 4.0f + (random(0, 3000) / 100.0f); // 4.0 - 34.0
+    state->setPort("temperature", temp);
+    Serial.println("[BG] Temperature updated: " + String(temp) + "°C");
+  }
+}
+
 void loop()
 {
   checkFactoryReset();
@@ -789,6 +809,7 @@ void loop()
   if (appReady)
   {
     webSocket.loop();
+    updateTemperatureState();
     return;
   }
 
@@ -1089,10 +1110,10 @@ void webSocketEvent(WStype_t type, uint8_t *payload, size_t length)
       if (typeStr == "INIT")
       {
         Serial.println("✓ Server acknowledged REGISTER with INIT");
-        // Send SESSION_INIT with current state snapshots
         if (globalAgent != nullptr)
         {
           globalAgent->sendSessionInit();
+          globalAgent->sendStateSnapshot();
         }
         return;
       }
