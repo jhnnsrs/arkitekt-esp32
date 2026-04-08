@@ -117,7 +117,7 @@ public:
     // Add a slider widget to a port
     static void addSliderWidget(JsonObject &port, float min, float max, float step = 1.0)
     {
-        JsonObject widget = port["assignWidget"].to<JsonObject>();
+        JsonObject widget = port["widget"].to<JsonObject>();
         widget["kind"] = "SLIDER";
         widget["min"] = min;
         widget["max"] = max;
@@ -127,7 +127,7 @@ public:
     // Add a string widget to a port
     static void addStringWidget(JsonObject &port, const String &placeholder = "", bool asParagraph = false)
     {
-        JsonObject widget = port["assignWidget"].to<JsonObject>();
+        JsonObject widget = port["widget"].to<JsonObject>();
         widget["kind"] = "STRING";
         widget["placeholder"] = placeholder;
         widget["asParagraph"] = asParagraph;
@@ -158,7 +158,7 @@ public:
     // Add a choice widget to a port
     static void addChoiceWidget(JsonObject &port)
     {
-        JsonObject widget = port["assignWidget"].to<JsonObject>();
+        JsonObject widget = port["widget"].to<JsonObject>();
         widget["kind"] = "CHOICE";
         // Choices should already be set on the port itself
     }
