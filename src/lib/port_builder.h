@@ -203,43 +203,4 @@ public:
     }
 };
 
-// Helper function to create a complete FunctionDefinition with typed ports
-class DefinitionBuilder
-{
-public:
-    static FunctionDefinition create(
-        const String &name,
-        const String &description,
-        const String &kind = "FUNCTION",
-        bool stateful = false)
-    {
-        FunctionDefinition def(name, description);
-        def.kind = kind;
-        def.stateful = stateful;
-        return def;
-    }
-
-    // Helper to add ports to a definition
-    static void setArgs(FunctionDefinition &def, JsonArray args)
-    {
-        def.args = args;
-    }
-
-    static void setReturns(FunctionDefinition &def, JsonArray returns)
-    {
-        def.returns = returns;
-    }
-
-    static void addInterface(FunctionDefinition &def, const String &interface)
-    {
-        // Note: This requires the JsonArray to be allocated in a persistent document
-        // In practice, you'd need to maintain this document alongside the definition
-    }
-
-    static void addCollection(FunctionDefinition &def, const String &collection)
-    {
-        // Same note as above
-    }
-};
-
 #endif // PORT_BUILDER_H

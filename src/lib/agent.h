@@ -34,6 +34,10 @@ struct FunctionDefinition
     JsonArray returns;    // Array of PortInput definitions
     JsonArray portGroups; // Array of PortGroupInput definitions
 
+    // Owned backing storage (managed by builder, transferred on build())
+    DynamicJsonDocument* _argsDoc = nullptr;
+    DynamicJsonDocument* _returnsDoc = nullptr;
+
     FunctionDefinition() : stateful(false), isDev(false), kind("FUNCTION"), version("0.0.1") {}
 
     FunctionDefinition(const String &name, const String &desc)
@@ -169,6 +173,9 @@ struct StateDefinition
     String key;
     String name;
     JsonArray ports; // Array of ReturnPortInput definitions
+
+    // Owned backing storage (managed by builder, transferred on build())
+    DynamicJsonDocument* _portsDoc = nullptr;
 
     StateDefinition() {}
     StateDefinition(const String &key, const String &name)

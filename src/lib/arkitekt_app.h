@@ -23,6 +23,7 @@
 #include "agent.h"
 #include "port_builder.h"
 #include "function_builder.h"
+#include "state_builder.h"
 #include "reply_channel.h"
 #include "run_config.h"
 
