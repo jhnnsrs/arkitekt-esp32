@@ -15,6 +15,7 @@
 #include "agent.h"
 #include "agent_example_updated.h"
 #include "config_defaults.h"
+#include "mbedtls/sha256.h"
 
 // BLE UUIDs for our custom provisioning service
 #define SERVICE_UUID "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -406,7 +407,47 @@ void setup()
 
   // Initialize the manifest with requirements
   appManifest.addRequirement("rekuest", "live.arkitekt.rekuest", false);
-  appManifest.addDeviceId("esp32-001");
+
+  // Generate deterministic device UUID from hardware identity
+  // Uses SHA-256 of a fixed namespace + MAC + chip info for near-zero collision probability
+  {
+    uint8_t mac[6];
+    esp_efuse_mac_get_default(mac);
+
+    // Fixed namespace ("arkitekt-esp32-device-id")
+    const char *ns = "arkitekt-esp32-device-id";
+    uint8_t chipRev = ESP.getChipRevision();
+    uint32_t chipModel = ESP.getChipModel()[0]; // first char as extra entropy
+
+    // Build input: namespace + MAC + chip revision
+    uint8_t input[64];
+    size_t len = 0;
+    memcpy(input + len, ns, strlen(ns)); len += strlen(ns);
+    memcpy(input + len, mac, 6); len += 6;
+    input[len++] = chipRev;
+    input[len++] = (uint8_t)(chipModel & 0xFF);
+
+    // SHA-256 hash
+    uint8_t hash[32];
+    mbedtls_sha256(input, len, hash, 0);
+
+    // Format as UUID v5-style: xxxxxxxx-xxxx-5xxx-Nxxx-xxxxxxxxxxxx
+    // Set version nibble to 5, variant bits to 10xx
+    hash[6] = (hash[6] & 0x0F) | 0x50; // version 5
+    hash[8] = (hash[8] & 0x3F) | 0x80; // variant 10xx
+
+    char deviceId[37];
+    snprintf(deviceId, sizeof(deviceId),
+             "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+             hash[0], hash[1], hash[2], hash[3],
+             hash[4], hash[5], hash[6], hash[7],
+             hash[8], hash[9], hash[10], hash[11],
+             hash[12], hash[13], hash[14], hash[15]);
+
+    appManifest.addDeviceId(deviceId);
+    Serial.println("Device ID: " + String(deviceId));
+    Serial.printf("  (MAC: %02x:%02x:%02x:%02x:%02x:%02x)\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  }
   // You can add more requirements or scopes here
   // appManifest.addScope("read:nodes");
   // appManifest.addRequirement("fluss", "live.arkitekt.fluss", true);
