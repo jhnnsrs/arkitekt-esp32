@@ -488,27 +488,57 @@ private:
 
         bool hasStoredWifi = (WiFi.status() == WL_CONNECTED || WiFi.SSID().length() > 0 || (savedEnterprise && savedWifiSSID.length() > 0));
 
+        bool wifiConnected = false;
+
         if (hasStoredWifi)
         {
             Serial.println("Already provisioned. Connecting...");
 
-            if (savedEnterprise && savedWifiSSID.length() > 0)
+            for (uint8_t attempt = 1; attempt <= config.maxWifiRetries; attempt++)
             {
-                connectWiFiEnterprise(savedWifiSSID, savedWifiIdentity, savedWifiPassword, savedWifiAnonId, savedWifiPemCert);
-            }
-            else
-            {
-                WiFi.begin();
+                Serial.println("[WiFi] Attempt " + String(attempt) + "/" + String(config.maxWifiRetries));
+
+                if (savedEnterprise && savedWifiSSID.length() > 0)
+                {
+                    connectWiFiEnterprise(savedWifiSSID, savedWifiIdentity, savedWifiPassword, savedWifiAnonId, savedWifiPemCert);
+                }
+                else
+                {
+                    WiFi.begin();
+                }
+
+                if (waitForWiFi())
+                {
+                    wifiConnected = true;
+                    break;
+                }
+
+                Serial.println("[WiFi] Attempt " + String(attempt) + " failed");
+                WiFi.disconnect(true);
+                delay(1000);
             }
 
-            if (!waitForWiFi())
+            if (!wifiConnected)
             {
-                Serial.println("Erasing WiFi config and restarting...");
-                WiFi.disconnect(true, true);
-                ESP.restart();
+                preferences.begin("arkitekt", true);
+                bool everConnected = preferences.getBool("wifiEverOk", false);
+                preferences.end();
+
+                if (!everConnected && config.ble)
+                {
+                    Serial.println("[WiFi] Never connected successfully. Falling back to BLE provisioning...");
+                    clearSavedConfig();
+                }
+                else
+                {
+                    Serial.println("Erasing WiFi config and restarting...");
+                    WiFi.disconnect(true, true);
+                    ESP.restart();
+                }
             }
         }
-        else if (config.ble)
+
+        if (!wifiConnected && config.ble)
         {
             // BLE provisioning
             startBLEProvisioning();
@@ -544,6 +574,8 @@ private:
                     ESP.restart();
                 }
 
+                wifiConnected = true;
+
                 if (statusCharacteristic)
                 {
                     String status = "Connected: " + WiFi.localIP().toString();
@@ -562,11 +594,20 @@ private:
                 ESP.restart();
             }
         }
-        else
+
+        if (!wifiConnected && !config.ble)
         {
             Serial.println("No WiFi and BLE disabled. Cannot proceed.");
             delay(3000);
             ESP.restart();
+        }
+
+        // Mark that WiFi has connected at least once
+        if (wifiConnected)
+        {
+            preferences.begin("arkitekt", false);
+            preferences.putBool("wifiEverOk", true);
+            preferences.end();
         }
     }
 

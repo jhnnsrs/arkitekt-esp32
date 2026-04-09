@@ -11,6 +11,7 @@ struct RunConfig
     const char *bleDeviceName = "ARKITEKT_CONFIG";
     String redeemToken = "";
     String baseUrl = "";
+    uint8_t maxWifiRetries = 3;
 };
 
 #endif // RUN_CONFIG_H
