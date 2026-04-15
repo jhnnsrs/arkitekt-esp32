@@ -277,6 +277,44 @@ private:
         Serial.printf("  (MAC: %02x:%02x:%02x:%02x:%02x:%02x)\n", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
     }
 
+    // ======================== Agent Name Generation ========================
+
+    void generateAgentName()
+    {
+        // Adjective + noun picked deterministically from the MAC address,
+        // followed by the last 4 hex digits of the MAC for uniqueness.
+        static const char *adjectives[] = {
+            "lucky", "precise", "quick", "bright", "calm",
+            "eager", "fancy", "happy", "idle", "jolly",
+            "keen", "lively", "merry", "neat", "odd",
+            "peppy", "quiet", "rapid", "swift", "tidy",
+            "alert", "bold", "crisp", "deft", "epic"
+        };
+        static const char *nouns[] = {
+            "microscope", "lens", "sensor", "probe", "scope",
+            "meter", "module", "beacon", "node", "chip",
+            "board", "device", "relay", "servo", "motor",
+            "driver", "bridge", "gate", "hub", "laser",
+            "fiber", "beam", "filter", "stage", "focus"
+        };
+
+        uint8_t mac[6];
+        esp_efuse_mac_get_default(mac);
+
+        const int adjCount = sizeof(adjectives) / sizeof(adjectives[0]);
+        const int nounCount = sizeof(nouns) / sizeof(nouns[0]);
+
+        // XOR alternating bytes so adjacent MACs still spread across the table
+        int adjIdx  = (mac[0] ^ mac[2] ^ mac[4]) % adjCount;
+        int nounIdx = (mac[1] ^ mac[3] ^ mac[5]) % nounCount;
+
+        char suffix[5];
+        snprintf(suffix, sizeof(suffix), "%02x%02x", mac[4], mac[5]);
+
+        agentName = String("esp32-") + adjectives[adjIdx] + "-" + nouns[nounIdx] + "-" + suffix;
+        Serial.println("Agent name: " + agentName);
+    }
+
     // ======================== BLE Provisioning ========================
 
     void startBLEProvisioning()
@@ -381,13 +419,19 @@ private:
 
         bool isEnterprise = bleWifiIdentity.length() > 0;
         preferences.putBool("wifiEnterprise", isEnterprise);
+        // Always save SSID so connectWiFi() can reconnect after reboot
+        preferences.putString("wifiSSID", bleWifiSSID);
         if (isEnterprise)
         {
-            preferences.putString("wifiSSID", bleWifiSSID);
             preferences.putString("wifiIdentity", bleWifiIdentity);
             preferences.putString("wifiPassword", bleWifiPassword);
             preferences.putString("wifiAnonId", bleWifiAnonIdentity);
             preferences.putString("wifiPemCert", bleWifiPemCertificate);
+        }
+        else
+        {
+            // Save password for plain WPA/WPA2 networks
+            preferences.putString("wifiPassword", bleWifiPassword);
         }
         preferences.end();
     }
@@ -485,8 +529,13 @@ private:
 
         Serial.println("Base URL: " + String(baseUrl));
         Serial.println("Enterprise WiFi: " + String(savedEnterprise ? "yes" : "no"));
+        Serial.println("Saved SSID: " + savedWifiSSID);
 
-        bool hasStoredWifi = (WiFi.status() == WL_CONNECTED || WiFi.SSID().length() > 0 || (savedEnterprise && savedWifiSSID.length() > 0));
+        // hasStoredWifi: true if we have a saved SSID, the WiFi library has
+        // stored credentials, or we're already connected
+        bool hasStoredWifi = (WiFi.status() == WL_CONNECTED ||
+                              WiFi.SSID().length() > 0 ||
+                              savedWifiSSID.length() > 0);
 
         bool wifiConnected = false;
 
@@ -502,8 +551,14 @@ private:
                 {
                     connectWiFiEnterprise(savedWifiSSID, savedWifiIdentity, savedWifiPassword, savedWifiAnonId, savedWifiPemCert);
                 }
+                else if (savedWifiSSID.length() > 0)
+                {
+                    // Use explicitly saved credentials (standard WPA/WPA2)
+                    WiFi.begin(savedWifiSSID.c_str(), savedWifiPassword.c_str());
+                }
                 else
                 {
+                    // Fall back to WiFi-library stored credentials
                     WiFi.begin();
                 }
 
@@ -981,8 +1036,9 @@ public:
         pinMode(0, INPUT_PULLUP);
         Serial.println("[RESET] Hold BOOT button for " + String(config.bootReconfigureTimeout / 1000) + "s to factory reset.");
 
-        // Generate device ID
+        // Generate device ID and agent name from MAC address
         generateDeviceId();
+        generateAgentName();
         manifest.print();
 
         // Connect WiFi (BLE provisioning if needed)
