@@ -19,9 +19,9 @@
 #include <FastAccelStepper.h>
 
 // ── Pin configuration ─────────────────────────────────────────────────────────
-#define STEPPER_STEP_PIN   4   // GPIO connected to driver STEP input
-#define STEPPER_DIR_PIN    5   // GPIO connected to driver DIR  input
-#define STEPPER_ENABLE_PIN 6   // GPIO connected to driver EN   input; -1 to skip
+#define STEPPER_STEP_PIN   GPIO_NUM_8   // GPIO connected to driver STEP input
+#define STEPPER_DIR_PIN    GPIO_NUM_7   // GPIO connected to driver DIR  input
+#define STEPPER_ENABLE_PIN GPIO_NUM_9   // GPIO connected to driver EN   input; -1 to skip
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Global stepper engine and motor handle (file-scope, persist for program lifetime)
