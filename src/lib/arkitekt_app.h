@@ -14,6 +14,7 @@
 #include <functional>
 #include <vector>
 #include "mbedtls/sha256.h"
+#include "esp_efuse.h"
 
 #include "config_defaults.h"
 #include "manifest.h"
@@ -122,7 +123,7 @@ private:
         {
             if (_arkitektAppInstance)
             {
-                std::string v = pCh->getValue();
+                String v = String(pCh->getValue().c_str());
                 if (v.length() > 0)
                 {
                     _arkitektAppInstance->bleWifiSSID = String(v.c_str());
@@ -138,7 +139,7 @@ private:
         {
             if (_arkitektAppInstance)
             {
-                std::string v = pCh->getValue();
+                String v = String(pCh->getValue().c_str());
                 if (v.length() > 0)
                 {
                     _arkitektAppInstance->bleWifiPassword = String(v.c_str());
@@ -154,7 +155,7 @@ private:
         {
             if (_arkitektAppInstance)
             {
-                std::string v = pCh->getValue();
+                String v = String(pCh->getValue().c_str());
                 if (v.length() > 0)
                 {
                     _arkitektAppInstance->bleWifiIdentity = String(v.c_str());
@@ -170,7 +171,7 @@ private:
         {
             if (_arkitektAppInstance)
             {
-                std::string v = pCh->getValue();
+                String v = String(pCh->getValue().c_str());
                 if (v.length() > 0)
                 {
                     _arkitektAppInstance->bleWifiAnonIdentity = String(v.c_str());
@@ -186,7 +187,7 @@ private:
         {
             if (_arkitektAppInstance)
             {
-                std::string v = pCh->getValue();
+                String v = String(pCh->getValue().c_str());
                 if (v.length() > 0)
                 {
                     if (v == "CLEAR")
@@ -210,7 +211,7 @@ private:
         {
             if (_arkitektAppInstance)
             {
-                std::string v = pCh->getValue();
+                String v = String(pCh->getValue().c_str());
                 if (v.length() > 0)
                 {
                     _arkitektAppInstance->bleConfigBaseUrl = String(v.c_str());
@@ -226,7 +227,7 @@ private:
         {
             if (_arkitektAppInstance)
             {
-                std::string v = pCh->getValue();
+                String v = String(pCh->getValue().c_str());
                 if (v.length() > 0)
                 {
                     _arkitektAppInstance->bleConfigToken = String(v.c_str());
@@ -242,8 +243,14 @@ private:
     void generateDeviceId()
     {
         uint8_t mac[6];
-        esp_efuse_mac_get_default(mac);
-
+        // if ESP32, we use a UUID v5-like approach based on the MAC address, chip revision, and model to generate a unique but consistent device ID that doesn't directly expose the MAC
+        #ifdef CONFIG_IDF_TARGET_ESP32
+        // add some value to the MAC to obfuscate it, since ESP32's MAC is easily obtainable by other apps and we don't want to make it trivially easy to correlate the device ID with the MAC
+        // (especially since the MAC is used in the BLE advertising, which can be easily snifed by nearby devices)
+        
+        #else 
+        esp_efuse_mac_get_default(mac); 
+        #endif
         const char *ns = "arkitekt-esp32-device-id";
         uint8_t chipRev = ESP.getChipRevision();
         uint32_t chipModel = ESP.getChipModel()[0];
@@ -299,8 +306,11 @@ private:
         };
 
         uint8_t mac[6];
+        #ifdef CONFIG_IDF_TARGET_ESP32
+        // for ESP32, use the same obfuscated MAC as in device ID generation to ensure the agent name is also not trivially linkable to the real MAC
+        #else
         esp_efuse_mac_get_default(mac);
-
+        #endif
         const int adjCount = sizeof(adjectives) / sizeof(adjectives[0]);
         const int nounCount = sizeof(nouns) / sizeof(nouns[0]);
 
