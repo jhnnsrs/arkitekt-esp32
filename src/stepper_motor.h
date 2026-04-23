@@ -19,9 +19,44 @@
 #include <FastAccelStepper.h>
 
 // ── Pin configuration ─────────────────────────────────────────────────────────
+#if defined(USE_TCA_PINS)
+// TCA9535/TCA9555 variant: STEP on a native GPIO, ENABLE + DIR through I2C
+// shift-register.  Build with -DUSE_TCA_PINS (env:az-delivery-devkit-v4-tca).
+#include <Wire.h>
+#include <TCA9555.h>
+
+static constexpr uint8_t TCA_I2C_SDA   = 21;    // SDA GPIO
+static constexpr uint8_t TCA_I2C_SCL   = 22;    // SCL GPIO
+static constexpr uint8_t TCA_I2C_ADDR  = 0x27;  // A2=A1=A0=1 → 0x27
+static constexpr uint8_t TCA_ENABLE    = 0;     // TCA P0.0
+static constexpr uint8_t TCA_DIR       = 4;     // TCA P0.4
+static constexpr int8_t  STEPPER_STEP_PIN = GPIO_NUM_15; // native ESP32 GPIO
+
+// FastAccelStepper marks external pins with bit 7 set
+static constexpr uint8_t PIN_EXT_FLAG  = 0x80;
+
+// Enable is active-LOW on most stepper drivers
+static constexpr bool ENABLE_INVERTED  = true;
+
+static TCA9555 tca(TCA_I2C_ADDR);
+
+// Called by FastAccelStepper whenever it drives an external (TCA) pin
+static bool externalPinCallback(uint8_t pin, uint8_t value)
+{
+    uint8_t tcaPin = pin & ~PIN_EXT_FLAG; // strip external-pin flag
+    tca.write1(tcaPin, value);
+    return value;
+}
+
+#elif defined(CONFIG_IDF_TARGET_ESP32S3)
 #define STEPPER_STEP_PIN   GPIO_NUM_8   // GPIO connected to driver STEP input
 #define STEPPER_DIR_PIN    GPIO_NUM_7   // GPIO connected to driver DIR  input
 #define STEPPER_ENABLE_PIN GPIO_NUM_9   // GPIO connected to driver EN   input; -1 to skip
+#else
+#define STEPPER_STEP_PIN   GPIO_NUM_15  // GPIO connected to driver STEP input
+#define STEPPER_DIR_PIN    GPIO_NUM_25  // GPIO connected to driver DIR  input
+#define STEPPER_ENABLE_PIN GPIO_NUM_33  // GPIO connected to driver EN   input; -1 to skip
+#endif
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Global stepper engine and motor handle (file-scope, persist for program lifetime)
@@ -33,6 +68,43 @@ static bool stepperInitialized = false;
 // Call once from setup() before registerAllStepperFunctions().
 void initStepper()
 {
+#if defined(USE_TCA_PINS)
+    log_i("Initializing stepper motor (TCA9535 mode)  step=%d  enable=TCA[%d]  dir=TCA[%d]",
+          STEPPER_STEP_PIN, TCA_ENABLE, TCA_DIR);
+
+    // Init I2C and TCA9535/TCA9555
+    Wire.begin(TCA_I2C_SDA, TCA_I2C_SCL, 100000UL);
+    tca.begin();
+    tca.pinMode1(TCA_ENABLE, OUTPUT);
+    tca.pinMode1(TCA_DIR,    OUTPUT);
+    // Disable motor (active-LOW driver: write HIGH = disabled)
+    tca.write1(TCA_ENABLE, HIGH);
+
+    stepperEngine.init();
+    // Register the TCA callback so FastAccelStepper can drive external pins
+    stepperEngine.setExternalCallForPin(externalPinCallback);
+
+    stepper = stepperEngine.stepperConnectToPin(STEPPER_STEP_PIN);
+    if (stepper == nullptr)
+    {
+        Serial.println("✗ Stepper (TCA): failed to connect to step pin " + String(STEPPER_STEP_PIN));
+        return;
+    }
+
+    // Route ENABLE and DIR through TCA via the external-pin flag
+    stepper->setEnablePin(TCA_ENABLE | PIN_EXT_FLAG, ENABLE_INVERTED);
+    stepper->setDirectionPin(TCA_DIR | PIN_EXT_FLAG);
+    stepper->setAutoEnable(true);
+    stepper->setDelayToDisable(500);
+
+    stepper->setSpeedInHz(1000);
+    stepper->setAcceleration(500);
+
+    stepperInitialized = true;
+    Serial.println("✓ Stepper (TCA) initialized  step=" + String(STEPPER_STEP_PIN) +
+                   "  enable=TCA[" + String(TCA_ENABLE) + "]" +
+                   "  dir=TCA[" + String(TCA_DIR) + "]");
+#else
     log_i("Initializing stepper motor...  step=%d  dir=%d  en=%d",
           STEPPER_STEP_PIN, STEPPER_DIR_PIN, STEPPER_ENABLE_PIN);
     stepperEngine.init();
@@ -60,6 +132,7 @@ void initStepper()
     Serial.println("✓ Stepper initialized  step=" + String(STEPPER_STEP_PIN) +
                    "  dir=" + String(STEPPER_DIR_PIN) +
                    "  en=" + String(STEPPER_ENABLE_PIN));
+#endif
 }
 
 // ── Helper: push current motor values into the AgentState ────────────────────
@@ -112,7 +185,7 @@ void registerAllStepperFunctions(ArkitektApp &app)
         {
             updateStepperState(agent.getState("stepper_state"));
         },
-        500);
+        5000);
 
     // ── Function: stepper_move ────────────────────────────────────────────────
     {

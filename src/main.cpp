@@ -3,7 +3,12 @@
 #include "stepper_motor.h"
 
 // ==================== Configuration & Constants ====================
+// TODO: Different pin for xiao vs regular ESP32 devkit? Maybe make this configurable via BLE or something?
+#ifdef CONFIG_IDF_TARGET_ESP32S3
+constexpr uint8_t LED_PIN = 21;
+#else
 constexpr uint8_t LED_PIN = 2;
+#endif
 constexpr uint32_t SENSOR_UPDATE_INTERVAL_MS = 5000;
 constexpr uint32_t SERIAL_TIMEOUT_MS = 3000;
 
