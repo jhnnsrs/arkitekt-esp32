@@ -14,7 +14,11 @@
 #include <functional>
 #include <vector>
 #include "mbedtls/sha256.h"
+
+// TODO: Only for esp32s3
+#ifdef CONFIG_IDF_TARGET_ESP32S3
 #include "esp_efuse.h"
+#endif 
 
 #include "config_defaults.h"
 #include "manifest.h"

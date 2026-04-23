@@ -73,22 +73,22 @@ jobs:
 
 
     - name: Run PlatformIO
-      run: pio run --environment az-delivery-devkit-v4
+      run: pio run --environment az-delivery-devkit-v4-tca
     - name: merge into one binary
       run: |
-        dir .pio/build/az-delivery-devkit-v4/ 
-        cd .pio/build/az-delivery-devkit-v4/
-        python -m esptool --chip esp32 merge_bin  -o esp32_az-delivery-devkit-v4.bin  --flash_mode dio  --flash_freq 40m  --flash_size 4MB  0x1000 bootloader.bin  0x8000 partitions.bin  0xe000 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin  0x10000 firmware.bin
+        dir .pio/build/az-delivery-devkit-v4-tca/ 
+        cd .pio/build/az-delivery-devkit-v4-tca/
+        python -m esptool --chip esp32 merge_bin  -o esp32_az-delivery-devkit-v4-tca.bin  --flash_mode dio  --flash_freq 40m  --flash_size 4MB  0x1000 bootloader.bin  0x8000 partitions.bin  0xe000 ~/.platformio/packages/framework-arduinoespressif32/tools/partitions/boot_app0.bin  0x10000 firmware.bin
     - uses: actions/upload-artifact@v4
       with:
         name: merged-firmware
-        path: build/az-delivery-devkit-v4/esp32_az-delivery-devkit-v4.bin
+        path: build/az-delivery-devkit-v4-tca/esp32_az-delivery-devkit-v4-tca.bin
     - name: Push to youseetoo Webtool
       uses: dmnemec/copy_file_to_another_repo_action@main
       env:
         API_TOKEN_GITHUB: ${{ secrets.API_TOKEN_GITHUB }}
       with:
-        source_file: '.pio/build/az-delivery-devkit-v4/esp32_az-delivery-devkit-v4.bin'      
+        source_file: '.pio/build/az-delivery-devkit-v4-tca/esp32_az-delivery-devkit-v4-tca.bin'      
         destination_repo: 'youseetoo/youseetoo.github.io'
         destination_folder: 'static/firmware_build/arkitekt'
         user_email: 'bene.d@gmx.de'
