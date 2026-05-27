@@ -440,7 +440,7 @@ mutation EnsureAgent($input: AgentInput!) {
         String serverHash = ensureRespDoc["data"]["ensureAgent"]["hash"] | "";
         Serial.println("Server agent hash: " + serverHash);
 
-        // Compute local hash from registered definitions
+        // Compute local hash from the current implementation payload.
         String localHash = computeDefinitionsHash();
         Serial.println("Local definitions hash: " + localHash);
 
@@ -452,7 +452,7 @@ mutation EnsureAgent($input: AgentInput!) {
         }
 
         Serial.println("Hashes differ, re-implementing agent...");
-        return implementAgent(name, extensions, errorMessage);
+        return implementAgent(name, extensions, localHash, errorMessage);
     }
 
 private:
@@ -492,7 +492,7 @@ private:
         return String(hash, HEX);
     }
 
-    bool implementAgent(const String &name, const JsonArray &extensions, String &errorMessage)
+    bool implementAgent(const String &name, const JsonArray &extensions, const String &hash, String &errorMessage)
     {
         Serial.println("\n=== Implementing Agent ===");
 
@@ -505,7 +505,6 @@ mutation ImplementAgent($input: ImplementAgentInput!) {
     id
     instanceId
     name
-    extensions
   }
 }
 )";
@@ -516,11 +515,15 @@ mutation ImplementAgent($input: ImplementAgentInput!) {
         JsonObject input = vars["input"].to<JsonObject>();
         input["instanceId"] = instanceId;
         input["name"] = name;
+        input["hash"] = hash;
 
-        // Extensions
-        if (extensions.size() > 0)
+        if (!extensions.isNull())
         {
-            input["extensions"] = extensions;
+            JsonArray inputExtensions = input["extensions"].to<JsonArray>();
+            for (JsonVariant extension : extensions)
+            {
+                inputExtensions.add(extension.as<const char *>());
+            }
         }
 
         // Implementations

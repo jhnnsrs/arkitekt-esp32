@@ -1,6 +1,5 @@
 #include <Arduino.h>
 #include "lib/arkitekt_app.h"
-#include "stepper_motor.h"
 
 // ==================== Configuration & Constants ====================
 // TODO: Different pin for xiao vs regular ESP32 devkit? Maybe make this configurable via BLE or something?
@@ -168,9 +167,6 @@ void setup()
     registerCalculator();
     registerDeviceInfo();
 
-    initStepper();
-    registerAllStepperFunctions(app);
-
     registerStates();
 
     app.registerBackgroundTask(
@@ -189,18 +185,6 @@ void setup()
             }
         },
         SENSOR_UPDATE_INTERVAL_MS);
-
-    // Startup self-test: move +100 steps, wait, then return -100 steps
-    if (stepperInitialized && stepper != nullptr)
-    {
-        Serial.println("[STEPPER] Startup test: +100 steps");
-        stepper->move(100);
-        delay(2000);
-        Serial.println("[STEPPER] Startup test: -100 steps");
-        stepper->move(-100);
-        delay(2000);
-        Serial.println("[STEPPER] Startup test complete  pos=" + String(stepper->getCurrentPosition()));
-    }
 
     RunConfig cfg;
     cfg.ble = true;
