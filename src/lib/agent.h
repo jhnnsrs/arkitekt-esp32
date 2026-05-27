@@ -294,8 +294,7 @@ public:
         : app(appInstance), serviceIdentifier(service), instanceId(instance), agentName(name), ws(nullptr), globalRev(0)
     {
         registry = new FunctionRegistry();
-        sessionId = agentGenerateUUID4();
-        Serial.println("[AGENT] Session ID: " + sessionId);
+        beginSession();
     }
 
     ~Agent()
@@ -315,6 +314,14 @@ public:
     const String &getSessionId() const
     {
         return sessionId;
+    }
+
+    void beginSession()
+    {
+        sessionId = agentGenerateUUID4();
+        globalRev = 0;
+        currentAssignation = "";
+        Serial.println("[AGENT] Session ID: " + sessionId);
     }
 
     FunctionRegistry *getRegistry()

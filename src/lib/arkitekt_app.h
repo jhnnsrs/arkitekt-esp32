@@ -846,6 +846,11 @@ private:
         case WStype_CONNECTED:
         {
             Serial.println("WebSocket connected");
+            if (agent)
+            {
+                agent->beginSession();
+            }
+
             StaticJsonDocument<512> doc;
             doc["type"] = "REGISTER";
             doc["instance_id"] = instanceId;
